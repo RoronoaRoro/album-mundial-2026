@@ -91,9 +91,6 @@ export default function AlbumMundial2026() {
   const [loading, setLoading] = useState(true)
   const [tab, setTab] = useState<Tab>("album");
   const [search, setSearch] = useState("");
-  const [showImport, setShowImport] = useState(false);
-  const [importText, setImportText] = useState("");
-  const [importError, setImportError] = useState("");
 
   useEffect(() => {
     loadData().then(d => { setData(d); setLoading(false) })
@@ -125,29 +122,6 @@ export default function AlbumMundial2026() {
     update({ ...data, duplicates: dups });
   };
 
-  const exportData = () => {
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = "album-mundial-2026.json";
-    a.click();
-    URL.revokeObjectURL(url);
-  };
-
-  const importData = () => {
-    try {
-      const parsed = JSON.parse(importText);
-      if (!Array.isArray(parsed.owned)) throw new Error("Formato inválido");
-      update(parsed);
-      setShowImport(false);
-      setImportText("");
-      setImportError("");
-    } catch {
-      setImportError("JSON inválido. Asegúrate de pegar el archivo exportado correctamente.");
-    }
-  };
-
   const ownedSet = new Set(data.owned);
   const totalOwned = data.owned.length;
   const totalDups = Object.values(data.duplicates).reduce((a, b) => a + b, 0);
@@ -169,7 +143,7 @@ export default function AlbumMundial2026() {
     <div style={{ fontFamily: "'Inter', 'Segoe UI', sans-serif", minHeight: "100vh", background: "#0a0f1e", color: "#e8eaf0" }}>
       {/* Header */}
       <header style={{ background: "linear-gradient(135deg, #0d1b3e 0%, #1a2a5e 50%, #0d1b3e 100%)", borderBottom: "1px solid #2a3a6e", padding: "0 24px", position: "sticky", top: 0, zIndex: 100 }}>
-        <div style={{ maxWidth: 1400, margin: "0 auto", display: "flex", alignItems: "center", justifyContent: "space-between", height: 64 }}>
+        <div className="header">
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
             <span style={{ fontSize: 28 }}>⚽</span>
             <div>
@@ -196,16 +170,6 @@ export default function AlbumMundial2026() {
               <div style={{ fontSize: 22, fontWeight: 700, color: "#ff7043", lineHeight: 1 }}>{totalDups}</div>
               <div style={{ fontSize: 10, color: "#7a8bbf", marginTop: 2 }}>repetidas</div>
             </div>
-          </div>
-
-          {/* Actions */}
-          <div style={{ display: "flex", gap: 8 }}>
-            <button onClick={exportData} style={btnStyle("#1e2d5a", "#4fc3f7")} title="Exportar JSON">
-              ↓ Exportar
-            </button>
-            <button onClick={() => setShowImport(true)} style={btnStyle("#1e2d5a", "#7a8bbf")} title="Importar JSON">
-              ↑ Importar
-            </button>
           </div>
         </div>
 
@@ -235,27 +199,6 @@ export default function AlbumMundial2026() {
           <DuplicatesView groups={filteredGroups} ownedSet={ownedSet} duplicates={data.duplicates} changeDup={changeDup} />
         )}
       </main>
-
-      {/* Import modal */}
-      {showImport && (
-        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 200 }}>
-          <div style={{ background: "#111827", border: "1px solid #2a3a6e", borderRadius: 12, padding: 24, width: 480, maxWidth: "90vw" }}>
-            <div style={{ fontWeight: 600, fontSize: 16, marginBottom: 12 }}>Importar datos</div>
-            <p style={{ fontSize: 13, color: "#7a8bbf", marginBottom: 12 }}>Pega el contenido del archivo JSON exportado previamente:</p>
-            <textarea
-              value={importText}
-              onChange={(e) => setImportText(e.target.value)}
-              rows={8}
-              style={{ width: "100%", background: "#0a0f1e", border: "1px solid #2a3a6e", borderRadius: 6, color: "#e8eaf0", fontSize: 12, padding: 10, fontFamily: "monospace", boxSizing: "border-box", resize: "vertical" }}
-            />
-            {importError && <div style={{ color: "#ff7043", fontSize: 12, marginTop: 8 }}>{importError}</div>}
-            <div style={{ display: "flex", gap: 8, marginTop: 16, justifyContent: "flex-end" }}>
-              <button onClick={() => { setShowImport(false); setImportError(""); }} style={btnStyle("#1e2d5a", "#7a8bbf")}>Cancelar</button>
-              <button onClick={importData} style={btnStyle("#1565c0", "#4fc3f7")}>Importar</button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
@@ -402,20 +345,6 @@ function TabBtn({ active, onClick, children }: { active: boolean; onClick: () =>
       {children}
     </button>
   );
-}
-
-function btnStyle(bg: string, color: string): React.CSSProperties {
-  return {
-    padding: "7px 14px",
-    background: bg,
-    border: `1px solid ${color}33`,
-    borderRadius: 6,
-    color,
-    fontSize: 12,
-    fontWeight: 500,
-    cursor: "pointer",
-    letterSpacing: "0.2px",
-  };
 }
 
 function counterBtn(disabled: boolean): React.CSSProperties {
