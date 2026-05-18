@@ -1,5 +1,6 @@
-import { useState, useCallback, useEffect } from "react";
+import { useState, useEffect } from "react";
 import { supabase } from './supabase';
+import type { User } from '@supabase/supabase-js';
 
 // ─── Data ────────────────────────────────────────────────────────────────────
 
@@ -62,24 +63,96 @@ const TOTAL = ALL_CODES.length;
 // ─── Storage ─────────────────────────────────────────────────────────────────
 
 interface AlbumData {
-  owned: string[];       // codes that the user has (at least one copy)
-  duplicates: Record<string, number>; // code -> count of extras (beyond the first)
+  owned: string[];
+  duplicates: Record<string, number>;
 }
 
 async function loadData(): Promise<AlbumData> {
   const { data } = await supabase
     .from('album')
     .select('owned, duplicates')
-    .eq('id', 'singleton')
-    .single()
-  return data ?? { owned: [], duplicates: {} }
+    .single();
+  return data ?? { owned: [], duplicates: {} };
 }
 
 async function saveData(albumData: AlbumData) {
   await supabase
     .from('album')
     .update({ owned: albumData.owned, duplicates: albumData.duplicates, updated_at: new Date().toISOString() })
-    .eq('id', 'singleton')
+    .eq('user_id', (await supabase.auth.getUser()).data.user!.id);
+}
+
+// ─── Auth Screen ──────────────────────────────────────────────────────────────
+
+function AuthScreen() {
+  const [mode, setMode] = useState<'login' | 'register'>('login');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [name, setName] = useState('');
+  const [error, setError] = useState('');
+  const [message, setMessage] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  const handleSubmit = async () => {
+    setError(''); setMessage(''); setLoading(true);
+    if (mode === 'login') {
+      const { error } = await supabase.auth.signInWithPassword({ email, password });
+      if (error) setError(error.message);
+    } else {
+      const { error } = await supabase.auth.signUp({
+        email, password,
+        options: { data: { display_name: name } }
+      });
+      if (error) setError(error.message);
+      else setMessage('Revisa tu correo para confirmar el registro.');
+    }
+    setLoading(false);
+  };
+
+  const inp: React.CSSProperties = {
+    width: '100%', padding: '10px 14px', background: '#111827',
+    border: '1px solid #2a3a6e', borderRadius: 8, color: '#e8eaf0',
+    fontSize: 14, outline: 'none', boxSizing: 'border-box',
+  };
+
+  return (
+    <div style={{ minHeight: '100vh', background: '#0a0f1e', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: "'Inter', 'Segoe UI', sans-serif" }}>
+      <div style={{ width: 360, background: '#111827', border: '1px solid #1e2d5a', borderRadius: 14, padding: '32px 28px' }}>
+        <div style={{ textAlign: 'center', marginBottom: 28 }}>
+          <span style={{ fontSize: 36 }}>⚽</span>
+          <div style={{ fontWeight: 700, fontSize: 18, color: '#fff', marginTop: 8 }}>Álbum Mundial 2026</div>
+          <div style={{ fontSize: 12, color: '#7a8bbf', marginTop: 4 }}>
+            {mode === 'login' ? 'Inicia sesión para continuar' : 'Crea tu cuenta'}
+          </div>
+        </div>
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          {mode === 'register' && (
+            <input style={inp} placeholder="Tu nombre" value={name} onChange={e => setName(e.target.value)} />
+          )}
+          <input style={inp} type="email" placeholder="Correo electrónico" value={email} onChange={e => setEmail(e.target.value)} />
+          <input style={inp} type="password" placeholder="Contraseña" value={password} onChange={e => setPassword(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && handleSubmit()} />
+
+          {error && <div style={{ fontSize: 12, color: '#ef9a9a', background: '#2a1010', border: '1px solid #c62828', borderRadius: 6, padding: '8px 12px' }}>{error}</div>}
+          {message && <div style={{ fontSize: 12, color: '#a5d6a7', background: '#0d1e10', border: '1px solid #2e7d32', borderRadius: 6, padding: '8px 12px' }}>{message}</div>}
+
+          <button onClick={handleSubmit} disabled={loading} style={{
+            padding: '10px', background: '#1565c0', border: 'none', borderRadius: 8,
+            color: '#fff', fontSize: 14, fontWeight: 600, cursor: loading ? 'not-allowed' : 'pointer',
+            opacity: loading ? 0.7 : 1, marginTop: 4,
+          }}>
+            {loading ? 'Cargando…' : mode === 'login' ? 'Iniciar sesión' : 'Crear cuenta'}
+          </button>
+
+          <button onClick={() => { setMode(mode === 'login' ? 'register' : 'login'); setError(''); setMessage(''); }}
+            style={{ background: 'transparent', border: 'none', color: '#7a8bbf', fontSize: 13, cursor: 'pointer', marginTop: 4 }}>
+            {mode === 'login' ? '¿No tienes cuenta? Regístrate' : '¿Ya tienes cuenta? Inicia sesión'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 // ─── App ─────────────────────────────────────────────────────────────────────
@@ -87,57 +160,98 @@ async function saveData(albumData: AlbumData) {
 type Tab = "album" | "duplicates";
 
 export default function AlbumMundial2026() {
-  const [data, setData] = useState<AlbumData>({ owned: [], duplicates: {} })
-  const [loading, setLoading] = useState(true)
+  const [user, setUser] = useState<User | null>(null);
+  const [authLoading, setAuthLoading] = useState(true);
+  const [saved, setSaved] = useState<AlbumData>({ owned: [], duplicates: {} });
+  const [pending, setPending] = useState<AlbumData>({ owned: [], duplicates: {} });
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
   const [tab, setTab] = useState<Tab>("album");
   const [search, setSearch] = useState("");
 
+  // Escuchar cambios de sesión
   useEffect(() => {
-    loadData().then(d => { setData(d); setLoading(false) })
-  }, [])
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setUser(session?.user ?? null);
+      setAuthLoading(false);
+    });
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user ?? null);
+    });
+    return () => subscription.unsubscribe();
+  }, []);
 
-  const update = useCallback((next: AlbumData) => {
-    setData(next)
-    saveData(next)
-  }, [])
+  // Cargar datos cuando hay usuario
+  useEffect(() => {
+    if (!user) return;
+    loadData().then(d => {
+      setSaved(d);
+      setPending(d);
+      setLoading(false);
+    });
+  }, [user]);
+
+  const savedSet = new Set(saved.owned);
+  const pendingSet = new Set(pending.owned);
+  const added = pending.owned.filter(c => !savedSet.has(c));
+  const removed = saved.owned.filter(c => !pendingSet.has(c));
+  const hasPendingChanges = added.length > 0 || removed.length > 0;
 
   const toggleOwned = (code: string) => {
-    const owned = new Set(data.owned);
-    const dups = { ...data.duplicates };
-    if (owned.has(code)) {
-      owned.delete(code);
-      delete dups[code];
-    } else {
-      owned.add(code);
-    }
-    update({ owned: [...owned], duplicates: dups });
+    const owned = new Set(pending.owned);
+    const dups = { ...pending.duplicates };
+    if (owned.has(code)) { owned.delete(code); delete dups[code]; }
+    else owned.add(code);
+    setPending({ owned: [...owned], duplicates: dups });
   };
 
   const changeDup = (code: string, delta: number) => {
-    const dups = { ...data.duplicates };
-    const cur = dups[code] ?? 0;
-    const next = Math.max(0, cur + delta);
-    if (next === 0) delete dups[code];
-    else dups[code] = next;
-    update({ ...data, duplicates: dups });
+    const dups = { ...pending.duplicates };
+    const next = Math.max(0, (dups[code] ?? 0) + delta);
+    if (next === 0) delete dups[code]; else dups[code] = next;
+    const next_data = { ...pending, duplicates: dups };
+    setPending(next_data); setSaved(next_data); saveData(next_data);
   };
 
-  const ownedSet = new Set(data.owned);
-  const totalOwned = data.owned.length;
-  const totalDups = Object.values(data.duplicates).reduce((a, b) => a + b, 0);
+  const handleSave = async () => {
+    setSaving(true);
+    await saveData(pending);
+    setSaved(pending);
+    setSaving(false);
+  };
+
+  const handleDiscard = () => setPending(saved);
+
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
+  };
+
+  const totalOwned = pending.owned.length;
+  const totalDups = Object.values(pending.duplicates).reduce((a, b) => a + b, 0);
   const pct = Math.round((totalOwned / TOTAL) * 100);
 
   const filteredGroups = Object.entries(ALL_STICKERS).filter(([group, codes]) => {
     if (!search) return true;
     const q = search.toUpperCase();
-    return group.includes(q) || codes.some((c) => c.toUpperCase().includes(q));
+    return group.includes(q) || codes.some(c => c.toUpperCase().includes(q));
   });
+
+  // Pantallas de carga y auth
+  if (authLoading) return (
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', background: '#0a0f1e', color: '#7a8bbf', fontSize: 16 }}>
+      Cargando…
+    </div>
+  );
+
+  if (!user) return <AuthScreen />;
 
   if (loading) return (
     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', background: '#0a0f1e', color: '#7a8bbf', fontSize: 16 }}>
       Cargando álbum...
     </div>
-  )
+  );
+
+  const displayName = user.user_metadata?.display_name || user.email?.split('@')[0] || 'Usuario';
 
   return (
     <div style={{ fontFamily: "'Inter', 'Segoe UI', sans-serif", minHeight: "100vh", background: "#0a0f1e", color: "#e8eaf0" }}>
@@ -148,11 +262,10 @@ export default function AlbumMundial2026() {
             <span style={{ fontSize: 28 }}>⚽</span>
             <div>
               <div style={{ fontWeight: 700, fontSize: 17, letterSpacing: "-0.3px", color: "#fff" }}>Álbum Mundial 2026</div>
-              <div style={{ fontSize: 11, color: "#7a8bbf", letterSpacing: "0.5px" }}>TRACKER PERSONAL</div>
+              <div style={{ fontSize: 11, color: "#7a8bbf", letterSpacing: "0.5px" }}>{displayName.toUpperCase()}</div>
             </div>
           </div>
 
-          {/* Progress */}
           <div style={{ display: "flex", alignItems: "center", gap: 20 }}>
             <div style={{ textAlign: "center" }}>
               <div style={{ fontSize: 22, fontWeight: 700, color: "#4fc3f7", lineHeight: 1 }}>{totalOwned}</div>
@@ -170,33 +283,65 @@ export default function AlbumMundial2026() {
               <div style={{ fontSize: 22, fontWeight: 700, color: "#ff7043", lineHeight: 1 }}>{totalDups}</div>
               <div style={{ fontSize: 10, color: "#7a8bbf", marginTop: 2 }}>repetidas</div>
             </div>
+            <button onClick={handleLogout} style={{
+              background: 'transparent', border: '1px solid #2a3a6e', borderRadius: 6,
+              color: '#7a8bbf', fontSize: 12, padding: '6px 12px', cursor: 'pointer',
+            }}>
+              Salir
+            </button>
           </div>
         </div>
 
-        {/* Tabs */}
         <div style={{ maxWidth: 1400, margin: "0 auto", display: "flex", gap: 0 }}>
           <TabBtn active={tab === "album"} onClick={() => setTab("album")}>⚽ Mi Álbum</TabBtn>
           <TabBtn active={tab === "duplicates"} onClick={() => setTab("duplicates")}>🔄 Repetidas</TabBtn>
         </div>
       </header>
 
-      {/* Search bar */}
+      {/* Barra flotante de cambios pendientes */}
+      {hasPendingChanges && (
+        <div style={{
+          position: "fixed", bottom: 24, left: "50%", transform: "translateX(-50%)",
+          zIndex: 200, display: "flex", alignItems: "center", gap: 12,
+          background: "#111e10", border: "1px solid #2e7d32", borderRadius: 10,
+          padding: "10px 18px", boxShadow: "0 4px 24px rgba(0,0,0,0.5)"
+        }}>
+          <div style={{ fontSize: 13, color: "#a5d6a7" }}>
+            {added.length > 0 && <span style={{ color: "#81c784", marginRight: 8 }}>+{added.length} añadida{added.length !== 1 ? "s" : ""}</span>}
+            {removed.length > 0 && <span style={{ color: "#e57373" }}>−{removed.length} quitada{removed.length !== 1 ? "s" : ""}</span>}
+          </div>
+          <button onClick={handleSave} disabled={saving} style={{
+            background: "#2e7d32", border: "none", borderRadius: 6,
+            color: "#e8f5e9", fontSize: 13, fontWeight: 600,
+            padding: "6px 16px", cursor: saving ? "not-allowed" : "pointer", opacity: saving ? 0.7 : 1,
+          }}>
+            {saving ? "Guardando…" : "Guardar cambios"}
+          </button>
+          <button onClick={handleDiscard} style={{
+            background: "transparent", border: "1px solid #c62828", borderRadius: 6,
+            color: "#ef9a9a", fontSize: 13, padding: "6px 12px", cursor: "pointer",
+          }}>
+            Descartar
+          </button>
+        </div>
+      )}
+
+      {/* Search */}
       <div style={{ maxWidth: 1400, margin: "0 auto", padding: "16px 24px 0" }}>
         <input
           type="text"
           placeholder="Buscar por selección o código (ej: ARG, BRA15…)"
           value={search}
-          onChange={(e) => setSearch(e.target.value)}
+          onChange={e => setSearch(e.target.value)}
           style={{ width: "100%", padding: "10px 16px", background: "#111827", border: "1px solid #2a3a6e", borderRadius: 8, color: "#e8eaf0", fontSize: 14, outline: "none", boxSizing: "border-box" }}
         />
       </div>
 
-      {/* Main content */}
-      <main style={{ maxWidth: 1400, margin: "0 auto", padding: "16px 24px 40px" }}>
+      <main style={{ maxWidth: 1400, margin: "0 auto", padding: "16px 24px 80px" }}>
         {tab === "album" ? (
-          <AlbumView groups={filteredGroups} ownedSet={ownedSet} toggleOwned={toggleOwned} />
+          <AlbumView groups={filteredGroups} savedSet={savedSet} pendingSet={pendingSet} toggleOwned={toggleOwned} />
         ) : (
-          <DuplicatesView groups={filteredGroups} ownedSet={ownedSet} duplicates={data.duplicates} changeDup={changeDup} />
+          <DuplicatesView groups={filteredGroups} ownedSet={pendingSet} duplicates={pending.duplicates} changeDup={changeDup} />
         )}
       </main>
     </div>
@@ -205,15 +350,16 @@ export default function AlbumMundial2026() {
 
 // ─── Album View ───────────────────────────────────────────────────────────────
 
-function AlbumView({ groups, ownedSet, toggleOwned }: {
+function AlbumView({ groups, savedSet, pendingSet, toggleOwned }: {
   groups: [string, string[]][];
-  ownedSet: Set<string>;
+  savedSet: Set<string>;
+  pendingSet: Set<string>;
   toggleOwned: (code: string) => void;
 }) {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
       {groups.map(([group, codes]) => {
-        const owned = codes.filter((c) => ownedSet.has(c)).length;
+        const owned = codes.filter(c => pendingSet.has(c)).length;
         const pct = Math.round((owned / codes.length) * 100);
         return (
           <div key={group} style={{ background: "#111827", border: "1px solid #1e2d5a", borderRadius: 10, overflow: "hidden" }}>
@@ -230,30 +376,22 @@ function AlbumView({ groups, ownedSet, toggleOwned }: {
               </div>
             </div>
             <div style={{ padding: "10px 12px", display: "flex", flexWrap: "wrap", gap: 5 }}>
-              {codes.map((code) => {
-                const has = ownedSet.has(code);
+              {codes.map(code => {
+                const isSaved = savedSet.has(code);
+                const isPending = pendingSet.has(code);
+                const isAdded = isPending && !isSaved;
+                const isRemoved = !isPending && isSaved;
+
+                let bg = "transparent", border = "1px solid #2a3a6e", color = "#4a5a8a", label = code;
+                if (isAdded)       { bg = "#1b4d1e"; border = "1px solid #2e7d32"; color = "#a5d6a7"; label = `+ ${code}`; }
+                else if (isRemoved){ bg = "#4a1515"; border = "1px solid #c62828"; color = "#ef9a9a"; label = `✕ ${code}`; }
+                else if (isSaved)  { bg = "#0d47a1"; border = "1px solid #1565c0"; color = "#90caf9"; label = `✓ ${code}`; }
+
                 return (
-                  <button
-                    key={code}
-                    onClick={() => toggleOwned(code)}
-                    title={has ? `Tienes ${code} — clic para desmarcar` : `No tienes ${code} — clic para marcar`}
-                    style={{
-                      padding: "4px 8px",
-                      fontSize: 11,
-                      fontWeight: has ? 600 : 400,
-                      borderRadius: 5,
-                      border: has ? "1px solid #1565c0" : "1px solid #2a3a6e",
-                      background: has ? "#0d47a1" : "transparent",
-                      color: has ? "#90caf9" : "#4a5a8a",
-                      cursor: "pointer",
-                      transition: "all 0.15s",
-                      letterSpacing: "0.2px",
-                      minWidth: 44,
-                      textAlign: "center",
-                    }}
-                  >
-                    {has && <span style={{ marginRight: 3, fontSize: 9 }}>✓</span>}
-                    {code}
+                  <button key={code} onClick={() => toggleOwned(code)}
+                    title={isAdded ? `Pendiente añadir — clic para cancelar` : isRemoved ? `Pendiente quitar — clic para cancelar` : isSaved ? `Tienes ${code} — clic para quitar` : `No tienes — clic para añadir`}
+                    style={{ padding: "4px 8px", fontSize: 11, fontWeight: (isSaved || isAdded || isRemoved) ? 600 : 400, borderRadius: 5, border, background: bg, color, cursor: "pointer", transition: "all 0.15s", letterSpacing: "0.2px", minWidth: 44, textAlign: "center" }}>
+                    {label}
                   </button>
                 );
               })}
@@ -276,10 +414,10 @@ function DuplicatesView({ groups, ownedSet, duplicates, changeDup }: {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
       <div style={{ fontSize: 13, color: "#7a8bbf", padding: "4px 0" }}>
-        Aquí puedes registrar cuántas repetidas tienes de cada lámina. Solo se muestran láminas que ya tienes (marcadas en el álbum). Usa los botones <strong style={{ color: "#e8eaf0" }}>+</strong> / <strong style={{ color: "#e8eaf0" }}>−</strong> para ajustar la cantidad de repetidas.
+        Aquí puedes registrar cuántas repetidas tienes de cada lámina. Solo se muestran láminas que ya tienes. Usa los botones <strong style={{ color: "#e8eaf0" }}>+</strong> / <strong style={{ color: "#e8eaf0" }}>−</strong> para ajustar.
       </div>
       {groups.map(([group, codes]) => {
-        const ownedCodes = codes.filter((c) => ownedSet.has(c));
+        const ownedCodes = codes.filter(c => ownedSet.has(c));
         if (ownedCodes.length === 0) return null;
         const groupDups = ownedCodes.reduce((s, c) => s + (duplicates[c] ?? 0), 0);
         return (
@@ -293,21 +431,10 @@ function DuplicatesView({ groups, ownedSet, duplicates, changeDup }: {
               )}
             </div>
             <div style={{ padding: "10px 12px", display: "flex", flexWrap: "wrap", gap: 6 }}>
-              {ownedCodes.map((code) => {
+              {ownedCodes.map(code => {
                 const count = duplicates[code] ?? 0;
                 return (
-                  <div
-                    key={code}
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 4,
-                      background: count > 0 ? "#1a1a0a" : "#0d1b3e",
-                      border: count > 0 ? "1px solid #5d4037" : "1px solid #1e2d5a",
-                      borderRadius: 6,
-                      padding: "4px 6px",
-                    }}
-                  >
+                  <div key={code} style={{ display: "flex", alignItems: "center", gap: 4, background: count > 0 ? "#1a1a0a" : "#0d1b3e", border: count > 0 ? "1px solid #5d4037" : "1px solid #1e2d5a", borderRadius: 6, padding: "4px 6px" }}>
                     <span style={{ fontSize: 11, color: count > 0 ? "#ffcc80" : "#7a8bbf", minWidth: 44, textAlign: "center", fontWeight: count > 0 ? 600 : 400 }}>{code}</span>
                     <button onClick={() => changeDup(code, -1)} disabled={count === 0} style={counterBtn(count === 0)}>−</button>
                     <span style={{ fontSize: 12, fontWeight: 700, minWidth: 16, textAlign: "center", color: count > 0 ? "#ff8a65" : "#4a5a8a" }}>{count}</span>
@@ -323,45 +450,16 @@ function DuplicatesView({ groups, ownedSet, duplicates, changeDup }: {
   );
 }
 
-// ─── Small helpers ────────────────────────────────────────────────────────────
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function TabBtn({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
   return (
-    <button
-      onClick={onClick}
-      style={{
-        padding: "10px 20px",
-        background: "transparent",
-        border: "none",
-        borderBottom: active ? "2px solid #4fc3f7" : "2px solid transparent",
-        color: active ? "#4fc3f7" : "#7a8bbf",
-        fontSize: 13,
-        fontWeight: active ? 600 : 400,
-        cursor: "pointer",
-        transition: "all 0.15s",
-        letterSpacing: "0.2px",
-      }}
-    >
+    <button onClick={onClick} style={{ padding: "10px 20px", background: "transparent", border: "none", borderBottom: active ? "2px solid #4fc3f7" : "2px solid transparent", color: active ? "#4fc3f7" : "#7a8bbf", fontSize: 13, fontWeight: active ? 600 : 400, cursor: "pointer", transition: "all 0.15s", letterSpacing: "0.2px" }}>
       {children}
     </button>
   );
 }
 
 function counterBtn(disabled: boolean): React.CSSProperties {
-  return {
-    width: 20,
-    height: 20,
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    background: disabled ? "transparent" : "#1e2d5a",
-    border: "1px solid #2a3a6e",
-    borderRadius: 4,
-    color: disabled ? "#2a3a6e" : "#90caf9",
-    fontSize: 14,
-    fontWeight: 700,
-    cursor: disabled ? "not-allowed" : "pointer",
-    padding: 0,
-    lineHeight: 1,
-  };
+  return { width: 20, height: 20, display: "flex", alignItems: "center", justifyContent: "center", background: disabled ? "transparent" : "#1e2d5a", border: "1px solid #2a3a6e", borderRadius: 4, color: disabled ? "#2a3a6e" : "#90caf9", fontSize: 14, fontWeight: 700, cursor: disabled ? "not-allowed" : "pointer", padding: 0, lineHeight: 1 };
 }
