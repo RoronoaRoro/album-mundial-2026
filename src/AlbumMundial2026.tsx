@@ -68,11 +68,29 @@ interface AlbumData {
 }
 
 async function loadData(): Promise<AlbumData> {
-  const { data } = await supabase
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { owned: [], duplicates: {} };
+
+  const { data, error } = await supabase
     .from('album')
     .select('owned, duplicates')
+    .eq('user_id', user.id)
     .single();
-  return data ?? { owned: [], duplicates: {} };
+
+  if (error || !data) {
+    await supabase.from('album').insert({
+      id: user.id,
+      user_id: user.id,
+      owned: [],
+      duplicates: {},
+    });
+    return { owned: [], duplicates: {} };
+  }
+
+  return {
+    owned: data.owned ?? [],
+    duplicates: data.duplicates ?? {},
+  };
 }
 
 async function saveData(albumData: AlbumData) {
