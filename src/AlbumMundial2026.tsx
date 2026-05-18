@@ -5,7 +5,7 @@ import type { User } from '@supabase/supabase-js';
 // ─── Data ────────────────────────────────────────────────────────────────────
 
 const ALL_STICKERS: Record<string, string[]> = {
-  FWC: ["FWC1","FWC2","FWC3","FWC4","FWC5","FWC6","FWC7","FWC8","FWC9","FWC10","FWC11","FWC12","FWC13","FWC14","FWC15","FWC16","FWC17","FWC18","FWC19"],
+  FWC: ["00", "FWC1","FWC2","FWC3","FWC4","FWC5","FWC6","FWC7","FWC8","FWC9","FWC10","FWC11","FWC12","FWC13","FWC14","FWC15","FWC16","FWC17","FWC18","FWC19"],
   MEX: ["MEX1","MEX2","MEX3","MEX4","MEX5","MEX6","MEX7","MEX8","MEX9","MEX10","MEX11","MEX12","MEX13","MEX14","MEX15","MEX16","MEX17","MEX18","MEX19","MEX20"],
   RSA: ["RSA1","RSA2","RSA3","RSA4","RSA5","RSA6","RSA7","RSA8","RSA9","RSA10","RSA11","RSA12","RSA13","RSA14","RSA15","RSA16","RSA17","RSA18","RSA19","RSA20"],
   KOR: ["KOR1","KOR2","KOR3","KOR4","KOR5","KOR6","KOR7","KOR8","KOR9","KOR10","KOR11","KOR12","KOR13","KOR14","KOR15","KOR16","KOR17","KOR18","KOR19","KOR20"],
